@@ -1,0 +1,9 @@
+mkdir my_app_template
+mkdir my_app_template/migrations
+mkdir my_app_template/delivery
+mkdir my_app_template/domain
+mkdir my_app_template/infrastructure
+touch my_app_template/__init__.py
+touch my_app_template/apps.py
+touch my_app_template/views.py
+touch my_app_template/admin.py

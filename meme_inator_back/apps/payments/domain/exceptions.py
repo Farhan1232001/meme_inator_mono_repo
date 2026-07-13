@@ -1,0 +1,3 @@
+class InsufficientFundsException(Exception):
+    """Raised when a wallet does not have enough tokens for a withdrawal."""
+    ...

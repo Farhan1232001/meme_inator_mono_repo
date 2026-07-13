@@ -1,0 +1,603 @@
+openapi: 3.0.3
+info:
+  title: Memeinator Payments API (domain-aligned, minimal)
+  version: "0.0.0"
+  description: >
+    Minimal, domain-aligned Payments API.
+
+    ## Idempotency Semantics (Normative)
+
+    All purchase-related endpoints support idempotent execution.
+
+    Idempotency is enforced using TWO independent mechanisms:
+      1. Client-supplied `Idempotency-Key` header
+      2. Provider-level transaction identifiers (e.g. Apple transactionId,
+         Google purchaseToken, Stripe charge/session/subscription ID)
+
+    ### Rules
+
+    1. If a request is received with an `Idempotency-Key` that has already been
+       processed AND the request body is semantically identical:
+         - The server MUST return the original successful response (HTTP 200).
+         - No new payment, entitlement, wallet mutation, or subscription change occurs.
+
+    2. If a request is received with an `Idempotency-Key` that has already been
+       processed BUT the request body differs:
+         - The server MUST reject the request with HTTP 409 (Idempotency conflict).
+
+    3. If no `Idempotency-Key` is supplied:
+         - The server enforces idempotency using the provider transaction identifiers
+           contained in the validated provider payload.
+         - If a payment already exists for the same
+           `(provider, provider_transaction_id)` pair:
+             - The server MUST return the existing payment result (HTTP 200).
+
+    4. Provider webhooks are ALWAYS treated as idempotent:
+         - Duplicate events MUST NOT create duplicate payments, entitlements,
+           wallet transactions, or subscription extensions.
+
+    ### Scope
+
+    - Idempotency applies to:
+        - `/payments/purchase`
+        - `/payments/purchase/coins`
+        - `/payments/restore`
+        - All provider webhook endpoints
+
+    - Idempotency keys are scoped per authenticated user.
+
+servers:
+  - url: https://meme-inator.com
+    description: Production Server
+  - url: https://staging.meme-inator.com
+    description: Shared Staging/Pre-production Server
+  - url: http://localhost:8000
+    description: Local Development
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: payments
+    description: Purchase and general payment flows
+  - name: subscriptions
+    description: Subscription read operations
+  - name: wallet
+    description: Consumable / wallet convenience
+  - name: products
+    description: Product lookup
+  - name: webhooks
+    description: Provider webhook receivers (signature-validated)
+
+paths:
+  /api/v0/payments/purchase:
+    post:
+      tags: [payments]
+      summary: Unified purchase endpoint
+      description: >
+        Process a purchase. Provide an internal SKU and a provider payload (receipt/token).
+        The server resolves the SKU and handles fulfillment.
+
+        ### Idempotency Behavior
+        - If the same request is retried with the same `Idempotency-Key`,
+          the original successful response is returned.
+        - If the same `Idempotency-Key` is reused with a different payload,
+          the request is rejected with HTTP 409.
+        - If the provider transaction already exists, the existing payment
+          result is returned even without an `Idempotency-Key`.
+
+      operationId: processPurchase
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/Idempotency-Key'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PurchaseRequest"
+      responses:
+        "200":
+          description: Purchase processed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseResponse"
+        "400":
+          description: Bad request
+        "402":
+          description: Payment / receipt validation failed
+        "409":
+          description: Idempotency conflict. The supplied Idempotency-Key was previously used with a different request payload.
+
+  /api/v0/payments/purchase/coins:
+    post:
+      tags: [payments, wallet]
+      summary: Buy coins (convenience endpoint)
+      description: >
+        Convenience endpoint to buy coin packs. Query params identify the pack.
+        Provider payload (receipt/token) must be provided in the JSON body.
+
+        ### Idempotency Behavior
+        - If the same request is retried with the same `Idempotency-Key`,
+          the original successful response is returned.
+        - If the same `Idempotency-Key` is reused with a different payload,
+          the request is rejected with HTTP 409.
+        - If the provider transaction already exists, the existing payment
+          result is returned even without an `Idempotency-Key`.
+
+      operationId: purchaseCoins
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: coin_type
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Coin pack identifier (e.g. gems_500)
+        - name: num_of_coins
+          in: query
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+          description: Requested number of coins (server validates)
+        - $ref: '#/components/parameters/Idempotency-Key'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CoinPurchaseRequest"
+      responses:
+        "200":
+          description: Coins credited (or queued) and payment recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PurchaseResponse"
+        "400":
+          description: Bad request / SKU mismatch
+        "402":
+          description: Payment / receipt validation failed
+        "409":
+          description: Idempotency conflict. The supplied Idempotency-Key was previously used with a different request payload.
+
+  /api/v0/payments/restore:
+    post:
+      tags: [payments]
+      summary: Restore purchases
+      description: >
+        Restore subscriptions and non-consumable entitlements from provider receipts.
+        Consumables are ignored.
+      operationId: restorePurchases
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreRequest"
+      responses:
+        "200":
+          description: Restore completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreResponse"
+        "404":
+          description: No purchases found to restore
+
+  /api/v0/payments/stripe/checkout-session:
+    post:
+      tags: [payments]
+      summary: Create Stripe Checkout session
+      description: >
+        Helper to create a Stripe Checkout session. The fulfillment still occurs via webhooks.
+      operationId: createStripeCheckout
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/StripeCheckoutSessionRequest"
+      responses:
+        "200":
+          description: Checkout session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StripeCheckoutSessionResponse"
+        "400":
+          description: Bad request
+
+  /api/v0/payments/user/entitlements:
+    get:
+      tags: [payments]
+      summary: Current user's entitlements
+      description: Returns entitlements visible to the authenticated user
+      operationId: getMyEntitlements
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of entitlements
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Entitlement"
+
+  /api/v0/payments/user/subscriptions:
+    get:
+      tags: [subscriptions]
+      summary: Current user's subscriptions
+      description: Returns subscriptions for the authenticated user
+      operationId: getMySubscriptions
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: List of subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Subscription"
+
+  /api/v0/payments/products/{product_id}:
+    get:
+      tags: [products]
+      summary: Product metadata lookup
+      description: >
+        Minimal product info suitable for client display (e.g. pro_edition).
+      operationId: getProduct
+      parameters:
+        - name: product_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductVariant"
+        "404":
+          description: Product not found
+
+  /api/v0/payments/webhooks/stripe:
+    post:
+      tags: [webhooks]
+      summary: Stripe webhook receiver
+      description: Signature-validated webhook. No JWT required.
+      security: []
+      responses:
+        "200":
+          description: Event processed
+
+  /api/v0/payments/webhooks/apple:
+    post:
+      tags: [webhooks]
+      summary: Apple App Store Server Notifications
+      description: Signature-validated webhook. No JWT required.
+      security: []
+      responses:
+        "200":
+          description: Event processed
+
+  /api/v0/payments/webhooks/google:
+    post:
+      tags: [webhooks]
+      summary: Google Play RTDN webhook
+      description: Signature-validated webhook. No JWT required.
+      security: []
+      responses:
+        "200":
+          description: Event processed
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Idempotency-Key:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+      description: >
+        Client-generated idempotency key.
+
+        - Requests with the same key and identical payload are guaranteed
+          to be executed at most once.
+        - Reuse of the same key with a different payload results in HTTP 409.
+        - Scoped per authenticated user.
+
+  schemas:
+    # thin wrapper for any provider-specific receipt/token
+    ProviderPayload:
+      type: object
+      additionalProperties: true
+      description: Provider-specific receipt/token blob. Stored raw for forensics.
+
+    # public request to purchase any SKU
+    PurchaseRequest:
+      type: object
+      required:
+        - product_sku
+        - payment_provider
+        - provider_payload
+      properties:
+        product_sku:
+          type: string
+          description: Internal SKU (e.g. auth.pro.monthly)
+        quantity:
+          type: integer
+          minimum: 1
+          default: 1
+        payment_provider:
+          type: string
+          description: provider identifier (stripe, apple_iap, google_play)
+        provider_payload:
+          $ref: "#/components/schemas/ProviderPayload"
+        metadata:
+          type: object
+          additionalProperties: true
+
+    CoinPurchaseRequest:
+      type: object
+      required:
+        - payment_provider
+        - provider_payload
+      properties:
+        payment_provider:
+          type: string
+        provider_payload:
+          $ref: "#/components/schemas/ProviderPayload"
+        client_reference:
+          type: string
+          description: Optional client reference
+
+    PurchaseResponse:
+      type: object
+      required:
+        - payment_id
+        - provider
+        - provider_transaction_id
+        - status
+        - amount_decimal
+        - currency
+        - purchase_date
+      properties:
+        # ---- Identity & Idempotency ----
+        idempotency_key:
+          type: string
+          nullable: true
+          description: >
+            The idempotency key used to create this payment, if supplied by the client. Good to have for obervability and client confidence. 
+        payment_id:
+          type: string
+          format: uuid
+          description: Internal payment identifier
+
+        provider:
+          type: string
+          description: Payment provider (stripe, apple_iap, google_play)
+
+        provider_transaction_id:
+          type: string
+          description: Provider transaction ID (chargeId, transactionId, orderId)
+
+        original_transaction_id:
+          type: string
+          nullable: true
+          description: >
+            Links renewals to the original purchase.
+            Apple: originalTransactionId
+            Google: linkedPurchaseToken
+            Stripe: subscription_id
+
+        # ---- Product & Pricing ----
+        amount_decimal:
+          type: number
+          format: float
+          description: Amount in major units (e.g. 9.99)
+
+        currency:
+          type: string
+          description: ISO currency code (USD, EUR, etc.)
+
+        # ---- Lifecycle ----
+        status:
+          type: string
+          description: Payment status (PENDING, SUCCEEDED, FAILED, REFUNDED)
+
+        is_trial:
+          type: boolean
+          description: Indicates whether this transaction represents a trial period
+
+        # ---- Timestamps ----
+        purchase_date:
+          type: string
+          format: date-time
+          description: When this transaction occurred
+
+        expires_date:
+          type: string
+          format: date-time
+          nullable: true
+          description: End of access window (subscriptions only)
+
+        # ---- Fulfillment Results ----
+        entitlement_granted:
+          type: boolean
+          description: Whether an entitlement was granted or updated
+
+        entitlement_code:
+          type: string
+          nullable: true
+          description: Entitlement codename granted (e.g. PRO_ACCESS)
+
+        wallet_delta:
+          type: integer
+          nullable: true
+          description: Coins added to wallet (consumables only)
+
+        subscription:
+          $ref: "#/components/schemas/Subscription"
+
+        # ---- Debug / Forensics ----
+        raw_provider_response:
+          type: object
+          additionalProperties: true
+          description: Minimal provider response for client debugging
+
+
+    RestoreRequest:
+      type: object
+      required:
+        - payment_provider
+        - provider_payload
+      properties:
+        payment_provider:
+          type: string
+        provider_payload:
+          $ref: "#/components/schemas/ProviderPayload"
+
+    RestoreResponse:
+      type: object
+      properties:
+        restored_entitlements:
+          type: array
+          items:
+            $ref: "#/components/schemas/Entitlement"
+        restored_subscriptions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Subscription"
+
+    StripeCheckoutSessionRequest:
+      type: object
+      required:
+        - product_sku
+        - success_url
+        - cancel_url
+      properties:
+        product_sku:
+          type: string
+        success_url:
+          type: string
+          format: uri
+        cancel_url:
+          type: string
+          format: uri
+        metadata:
+          type: object
+          additionalProperties: true
+
+    StripeCheckoutSessionResponse:
+      type: object
+      properties:
+        session_id:
+          type: string
+        checkout_url:
+          type: string
+          format: uri
+
+    # Minimal view of PaymentEntity
+    Payment:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        provider:
+          type: string
+        provider_transaction_id:
+          type: string
+        product_sku:
+          type: string
+        amount_cents:
+          type: integer
+        currency:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+
+    # Minimal view of SubscriptionEntity
+    Subscription:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        product_sku:
+          type: string
+        status:
+          type: string
+        current_period_start:
+          type: string
+          format: date-time
+        current_period_end:
+          type: string
+          format: date-time
+        cancel_at_period_end:
+          type: boolean
+        provider_subscription_id:
+          type: string
+
+    # Minimal view of EntitlementEntity
+    Entitlement:
+      type: object
+      properties:
+        codename:
+          type: string
+        granted_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        source:
+          type: string
+
+    # Minimal view of ProductVariantEntity
+    ProductVariant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        internal_sku:
+          type: string
+        product_type:
+          type: string
+        provider_mappings:
+          type: object
+          additionalProperties: true
+          description: Map of provider -> external product id (kept minimal)
+        entitlement_codename:
+          type: string
+        token_grants_amount:
+          type: integer

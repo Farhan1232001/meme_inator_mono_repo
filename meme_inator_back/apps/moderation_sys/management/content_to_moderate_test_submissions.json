@@ -1,0 +1,15 @@
+[
+  {
+    "content_id": "00000000-0000-0000-0000-000000000001",
+    "author_id": "019d5606-d99d-71c4-9001-80780832e143",
+    "policy_routing_key": "mod_sys:default:text",
+    "content_type": "comment",
+    "content_source": "request_body",
+    "region": "us-west",
+    "text_content": {
+      "text": "This is a safe test message."
+    },
+    "video_content": null,
+    "image_content": null
+  }
+]

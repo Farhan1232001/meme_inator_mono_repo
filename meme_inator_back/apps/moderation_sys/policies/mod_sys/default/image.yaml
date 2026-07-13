@@ -1,0 +1,27 @@
+routing_key: "mod_sys:default:image"
+version: 1
+active_from: "2025-01-01T00:00:00Z"
+active_to: null
+confidence_thresholds:
+  high_risk_threshold: 0.88
+  low_risk_threshold: 0.12
+  grey_zone_min: 0.12
+appeal_eligibility:
+  time_limit_hours: 72
+  requires_reason: true
+  appealable_decisions: ["REJECT"]
+  max_appeals_per_user_per_day: 2
+reputation_impact:
+  accept_points: 5
+  reject_points: -12
+  appeal_upheld_return: 12
+  appeal_denied_penalty: -6
+webhook_retry:
+  max_retries: 3
+  initial_delay_seconds: 30
+  backoff_multiplier: 2.0
+  max_delay_seconds: 1800
+drift_detection:
+  confidence_delta_threshold: 0.15
+  decision_change_required: false
+  min_samples: 15

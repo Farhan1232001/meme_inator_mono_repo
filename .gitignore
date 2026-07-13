@@ -1,0 +1,6 @@
+# Directories intentionally excluded from this monorepo
+/docs/
+/meme_inator_front_proto/
+
+# macOS
+.DS_Store

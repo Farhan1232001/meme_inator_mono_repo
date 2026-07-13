@@ -1,0 +1,74 @@
+# git init has not be run on this project; i just made this .gitignore manually
+# Documentation Directories
+
+# Logs
+logs/
+*.log
+
+## Python-Specific Files and Directories
+# Byte-code files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution and build files
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.Python
+
+# C extensions
+*.so
+
+## Virtual Environments
+venv/
+env/
+ENV/
+
+## Database Files
+*.sqlite3
+
+## Development and Tooling
+# Templates
+clean_template/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment variables
+.env
+.env.local
+*.env
+
+# Only for Development (Django migrations example)
+# The `!**/migrations` and `!**/migrations/__init__.py` lines
+# are typically used to ignore all migration files EXCEPT those 
+# in the project's own apps, which is often not the desired 
+# behavior. For a standard Python project, it's safer to just
+# handle the compiled files. I've left the original block
+# as-is since it was marked as a specific development rule, 
+# but I recommend reviewing its purpose.
+# TODO: Consider commenting line below. Good to track migrations and database schema changes.  
+**/migrations/**
+!**/migrations
+!**/migrations/__init__.py
+
+## Operating System Files
+.DS_Store
+Thumbs.db
