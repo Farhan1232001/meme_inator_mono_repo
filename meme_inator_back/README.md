@@ -43,13 +43,12 @@ The project is conceived and structured around as decoupled modules or context b
 * **Task Queues / Async:** Pluggable queue components for notifications and media lifecycle management (TODO)
 * **Object Storage:** AWS S3 integration via explicit infrastructure drivers (`shared/infrastructure/clients/s3.py`)
 
-## Getting Started
+
 
 ### Prerequisites
 Ensure your local system has Python 3.14+ installed globally. 
 
-### Installation & Local Setup
-
+## Getting Started
 
 1. Initialize and activate the virtual enviornment. 
    ```bash
