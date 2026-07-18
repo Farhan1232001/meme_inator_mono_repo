@@ -7,12 +7,14 @@ import 'package:meme_inator_front/core/api/api_endpoints_base.dart';
 import 'package:meme_inator_front/core/api/enums/environment.dart';
 
 Future<void> main() async {
-  // Setup ApiEndpoints for Development Flavor
+  // 1. Setup ApiEndpoints for Development Flavor
   const baseUrl = String.fromEnvironment(
     'API_BASE_URL',
     defaultValue: 'http://localhost:8000',
   );
   ApiEndpointsBase.setDevelopmentBaseUrl(baseUrl);
   ApiEndpointsBase.setEnvironment(Environment.development);
+
+  // 2. bootstrap
   await bootstrap(() => const App());
 }
